@@ -1,12 +1,12 @@
 const express = require("express");
 const { exec } = require("child_process");
-const fs = require("fs");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json());
 
-// status
+// STATUS
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -16,7 +16,7 @@ app.get("/", (req, res) => {
 });
 
 // TTS
-app.post("/tts", async (req, res) => {
+app.post("/tts", (req, res) => {
   const { text, voice } = req.body;
 
   if (!text) {
@@ -29,7 +29,9 @@ app.post("/tts", async (req, res) => {
   const fileName = `audio_${Date.now()}.mp3`;
   const filePath = path.join(__dirname, fileName);
 
-  const cmd = `edge-tts --voice "${voice || "pt-BR-AntonioNeural"}" --text "${text}" --write-media "${filePath}"`;
+  const safeText = text.replace(/"/g, "'");
+
+  const cmd = `npx edge-tts --voice "${voice || "pt-BR-AntonioNeural"}" --text "${safeText}" --write-media "${filePath}"`;
 
   exec(cmd, (err) => {
     if (err) {
@@ -48,7 +50,7 @@ app.post("/tts", async (req, res) => {
   });
 });
 
-// servir arquivos mp3
+// SERVIR MP3
 app.get("/:file", (req, res) => {
   const filePath = path.join(__dirname, req.params.file);
   res.sendFile(filePath);
@@ -56,5 +58,5 @@ app.get("/:file", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log("Running on port " + PORT);
 });
