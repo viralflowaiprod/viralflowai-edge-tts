@@ -6,6 +6,7 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
+// status
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -14,11 +15,15 @@ app.get("/", (req, res) => {
   });
 });
 
+// TTS
 app.post("/tts", async (req, res) => {
   const { text, voice } = req.body;
 
   if (!text) {
-    return res.status(400).json({ error: "text required" });
+    return res.status(400).json({
+      success: false,
+      error: "text required"
+    });
   }
 
   const fileName = `audio_${Date.now()}.mp3`;
@@ -34,16 +39,22 @@ app.post("/tts", async (req, res) => {
       });
     }
 
-    const url = `${req.protocol}://${req.get("host")}/${fileName}`;
+    const audioUrl = `${req.protocol}://${req.get("host")}/${fileName}`;
 
     res.json({
       success: true,
-      audio_url: url
+      audio_url: audioUrl
     });
   });
 });
 
+// servir arquivos mp3
+app.get("/:file", (req, res) => {
+  const filePath = path.join(__dirname, req.params.file);
+  res.sendFile(filePath);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port " + PORT);
 });
