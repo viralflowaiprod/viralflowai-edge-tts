@@ -1,7 +1,6 @@
 {
   "name": "viralflowai-edge-tts",
   "version": "1.0.0",
-  "description": "Edge TTS service",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
