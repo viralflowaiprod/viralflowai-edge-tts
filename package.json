@@ -1,12 +1,12 @@
 {
   "name": "viralflowai-edge-tts",
   "version": "1.0.0",
+  "description": "Edge TTS service for ViralFlowAI",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "edge-tts": "^1.7.4",
-    "express": "^4.19.2"
+    "express": "^4.21.0"
   }
 }
