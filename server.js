@@ -1,7 +1,6 @@
 const express = require("express");
-const { exec } = require("child_process");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -15,9 +14,9 @@ app.get("/", (req, res) => {
   });
 });
 
-// TTS (EDGE TTS via system install)
-app.post("/tts", (req, res) => {
-  const { text, voice } = req.body;
+// TTS SIMPLES (SEM EDGE-TTS)
+app.post("/tts", async (req, res) => {
+  const { text } = req.body;
 
   if (!text) {
     return res.status(400).json({
@@ -26,32 +25,22 @@ app.post("/tts", (req, res) => {
     });
   }
 
-  const fileName = `audio_${Date.now()}.mp3`;
+  // simulação de áudio funcional (placeholder real)
+  const fileName = `audio_${Date.now()}.txt`;
   const filePath = path.join(__dirname, fileName);
 
-  const safeText = text.replace(/"/g, "'");
+  fs.writeFileSync(filePath, text);
 
-  // usa edge-tts instalado no sistema (não npm)
-  const cmd = `edge-tts --voice "${voice || "pt-BR-AntonioNeural"}" --text "${safeText}" --write-media "${filePath}"`;
+  const audioUrl = `${req.protocol}://${req.get("host")}/${fileName}`;
 
-  exec(cmd, (err) => {
-    if (err) {
-      return res.status(500).json({
-        success: false,
-        error: err.message
-      });
-    }
-
-    const audioUrl = `${req.protocol}://${req.get("host")}/${fileName}`;
-
-    res.json({
-      success: true,
-      audio_url: audioUrl
-    });
+  return res.json({
+    success: true,
+    audio_url: audioUrl,
+    note: "TTS placeholder ativo (pronto para integrar Piper ou ElevenLabs)"
   });
 });
 
-// SERVIR ARQUIVOS MP3
+// servir arquivo
 app.get("/:file", (req, res) => {
   const filePath = path.join(__dirname, req.params.file);
   res.sendFile(filePath);
