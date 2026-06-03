@@ -1,11 +1,12 @@
 const express = require("express");
 const { exec } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json());
 
-// status
+// STATUS
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -14,7 +15,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// TTS REAL (Python edge-tts)
+// TTS (EDGE TTS via system install)
 app.post("/tts", (req, res) => {
   const { text, voice } = req.body;
 
@@ -30,7 +31,8 @@ app.post("/tts", (req, res) => {
 
   const safeText = text.replace(/"/g, "'");
 
-  const cmd = `python3 -m edge_tts --voice "${voice || "pt-BR-AntonioNeural"}" --text "${safeText}" --write-media "${filePath}"`;
+  // usa edge-tts instalado no sistema (não npm)
+  const cmd = `edge-tts --voice "${voice || "pt-BR-AntonioNeural"}" --text "${safeText}" --write-media "${filePath}"`;
 
   exec(cmd, (err) => {
     if (err) {
@@ -49,7 +51,7 @@ app.post("/tts", (req, res) => {
   });
 });
 
-// serve mp3
+// SERVIR ARQUIVOS MP3
 app.get("/:file", (req, res) => {
   const filePath = path.join(__dirname, req.params.file);
   res.sendFile(filePath);
