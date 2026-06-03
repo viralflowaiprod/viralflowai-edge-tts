@@ -12,11 +12,11 @@ app.get("/", (req, res) => {
   });
 });
 
-// TESTE TTS
-app.post("/tts", (req, res) => {
+// TESTE OBRIGATÓRIO
+app.get("/tts", (req, res) => {
   res.json({
-    ok: true,
-    text: req.body.text || "empty"
+    success: true,
+    route: "tts working"
   });
 });
 
