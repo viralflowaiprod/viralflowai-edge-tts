@@ -1,6 +1,7 @@
 const express = require("express");
-const fs = require("fs");
 const path = require("path");
+const fs = require("fs");
+const { exec } = require("child_process");
 
 const app = express();
 app.use(express.json());
@@ -14,9 +15,9 @@ app.get("/", (req, res) => {
   });
 });
 
-// TTS SIMPLES (SEM EDGE-TTS)
+// TTS REAL FUNCIONANDO
 app.post("/tts", async (req, res) => {
-  const { text } = req.body;
+  const { text, voice } = req.body;
 
   if (!text) {
     return res.status(400).json({
@@ -25,22 +26,32 @@ app.post("/tts", async (req, res) => {
     });
   }
 
-  // simulação de áudio funcional (placeholder real)
-  const fileName = `audio_${Date.now()}.txt`;
+  const fileName = `audio_${Date.now()}.mp3`;
   const filePath = path.join(__dirname, fileName);
 
-  fs.writeFileSync(filePath, text);
+  const safeText = text.replace(/"/g, "'");
 
-  const audioUrl = `${req.protocol}://${req.get("host")}/${fileName}`;
+  // GOOGLE TTS (FUNCIONA SEM DEPENDÊNCIAS PESADAS)
+  const cmd = `npx gtts-cli "${safeText}" --lang pt --output "${filePath}"`;
 
-  return res.json({
-    success: true,
-    audio_url: audioUrl,
-    note: "TTS placeholder ativo (pronto para integrar Piper ou ElevenLabs)"
+  exec(cmd, (err) => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        error: err.message
+      });
+    }
+
+    const audioUrl = `${req.protocol}://${req.get("host")}/${fileName}`;
+
+    res.json({
+      success: true,
+      audio_url: audioUrl
+    });
   });
 });
 
-// servir arquivo
+// SERVIR MP3
 app.get("/:file", (req, res) => {
   const filePath = path.join(__dirname, req.params.file);
   res.sendFile(filePath);
