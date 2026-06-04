@@ -1,7 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
-const { exec } = require("child_process");
+const { exec, execSync } = require("child_process");
 
 const app = express();
 
@@ -62,7 +62,7 @@ app.post("/tts", async (req, res) => {
 });
 
 // =======================
-// VIDEO BUILDER (NOVO)
+// VIDEO BUILDER (CORRIGIDO)
 // =======================
 app.post("/create-video", async (req, res) => {
   const { images, audioUrl } = req.body;
@@ -78,46 +78,36 @@ app.post("/create-video", async (req, res) => {
   const audioFile = `audio_${Date.now()}.mp3`;
 
   try {
-    // 1. baixar áudio
-    exec(`curl -L "${audioUrl}" -o ${audioFile}`);
+    console.log("📥 Baixando áudio...");
+    execSync(`curl -L "${audioUrl}" -o ${audioFile}`);
 
-    // 2. baixar imagens
+    console.log("🖼️ Baixando imagens...");
     images.forEach((img, i) => {
-      exec(`curl -L "${img}" -o img${i}.jpg`);
+      execSync(`curl -L "${img}" -o img${i}.jpg`);
     });
 
-    // espera simples (MVP)
-    setTimeout(() => {
-      // 3. montar vídeo com FFmpeg
-      const ffmpegCmd = `
-        ffmpeg -y \
-        -framerate 1/4 \
-        -i img%d.jpg \
-        -i ${audioFile} \
-        -c:v libx264 \
-        -c:a aac \
-        -pix_fmt yuv420p \
-        -shortest \
-        ${videoName}
-      `;
+    console.log("🎬 Gerando vídeo...");
 
-      exec(ffmpegCmd, (error) => {
-        if (error) {
-          return res.status(500).json({
-            success: false,
-            error: error.message
-          });
-        }
+    const ffmpegCmd = `
+      ffmpeg -y \
+      -framerate 1/4 \
+      -i img%d.jpg \
+      -i ${audioFile} \
+      -c:v libx264 \
+      -c:a aac \
+      -pix_fmt yuv420p \
+      -shortest \
+      ${videoName}
+    `;
 
-        const videoUrl = `https://${req.get("host")}/${videoName}`;
+    execSync(ffmpegCmd);
 
-        return res.json({
-          success: true,
-          video_url: videoUrl
-        });
-      });
+    const videoUrl = `https://${req.get("host")}/${videoName}`;
 
-    }, 4000);
+    return res.json({
+      success: true,
+      video_url: videoUrl
+    });
 
   } catch (err) {
     return res.status(500).json({
