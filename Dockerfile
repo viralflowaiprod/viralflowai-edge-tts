@@ -6,9 +6,8 @@ RUN apt-get update && apt-get install -y \
     unzip \
     python3 \
     python3-pip \
+    pipx \
     && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install piper-tts
 
 WORKDIR /app
 
