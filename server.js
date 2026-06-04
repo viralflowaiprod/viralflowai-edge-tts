@@ -39,7 +39,7 @@ app.post("/tts", async (req, res) => {
         }
 
         const audioUrl =
-          `${req.protocol}://${req.get("host")}/${filename}`;
+          `https://${req.get("host")}/${filename}`;
 
         return res.json({
           success: true,
