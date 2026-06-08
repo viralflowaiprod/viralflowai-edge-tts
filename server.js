@@ -4,140 +4,44 @@ const path = require("path");
 const { exec, execSync } = require("child_process");
 
 const app = express();
-
 app.use(express.json());
 
-// =======================
-// STATUS
-// =======================
+const jobs = {};
+
 app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    service: "ViralFlowAI Edge TTS + Video Builder",
-    status: "online"
+  res.json({ success: true, service: "ViralFlowAI Edge TTS + Video Builder", status: "online" });
+});
+
+app.post("/tts", (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ success: false, error: "text required" });
+  const filename = `audio_${Date.now()}.mp3`;
+  exec(`edge-tts --voice pt-BR-AntonioNeural --text "${text}" --write-media ${filename}`, (error) => {
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    res.json({ success: true, audio_url: `https://${req.get("host")}/${filename}` });
   });
 });
 
-// =======================
-// EDGE TTS
-// =======================
-app.post("/tts", async (req, res) => {
-  try {
-    const { text } = req.body;
-
-    if (!text) {
-      return res.status(400).json({
-        success: false,
-        error: "text required"
-      });
-    }
-
-    const filename = `audio_${Date.now()}.mp3`;
-
-    exec(
-      `edge-tts --voice pt-BR-AntonioNeural --text "${text}" --write-media ${filename}`,
-      (error) => {
-        if (error) {
-          return res.status(500).json({
-            success: false,
-            error: error.message
-          });
-        }
-
-        const audioUrl = `https://${req.get("host")}/${filename}`;
-
-        return res.json({
-          success: true,
-          audio_url: audioUrl
-        });
-      }
-    );
-
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-});
-
-// =======================
-// VIDEO BUILDER (CORRIGIDO)
-// =======================
-app.post("/create-video", async (req, res) => {
+app.post("/create-video", (req, res) => {
   const { images, audioUrl } = req.body;
-
   if (!images || !audioUrl || images.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: "images and audioUrl required"
-    });
+    return res.status(400).json({ success: false, error: "images and audioUrl required" });
   }
+
+  const jobId = `job_${Date.now()}`;
+  jobs[jobId] = { status: "processing", video_url: null, error: null };
+  res.json({ success: true, job_id: jobId, status: "processing" });
 
   const videoName = `video_${Date.now()}.mp4`;
-  const audioFile = `audio_${Date.now()}.mp3`;
+  const audioFile = `audio_dl_${Date.now()}.mp3`;
 
-  try {
-    console.log("📥 Baixando áudio...");
-    execSync(`curl -L "${audioUrl}" -o ${audioFile}`);
+  setImmediate(() => {
+    try {
+      console.log("📥 Baixando áudio...");
+      execSync(`curl -L "${audioUrl}" -o ${audioFile}`);
 
-    console.log("🖼️ Baixando imagens...");
-    images.forEach((img, i) => {
-      execSync(`curl -L "${img}" -o img${i}.jpg`);
-    });
+      console.log("🖼️ Baixando imagens...");
+      images.forEach((img, i) => execSync(`curl -L "${img}" -o img${i}.jpg`));
 
-    console.log("🎬 Gerando vídeo...");
-
-    const ffmpegCmd = `
-      ffmpeg -y \
-      -framerate 1/4 \
-      -i img%d.jpg \
-      -i ${audioFile} \
-      -c:v libx264 \
-      -c:a aac \
-      -pix_fmt yuv420p \
-      -shortest \
-      ${videoName}
-    `;
-
-    execSync(ffmpegCmd);
-
-    const videoUrl = `https://${req.get("host")}/${videoName}`;
-
-    return res.json({
-      success: true,
-      video_url: videoUrl
-    });
-
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-});
-
-// =======================
-// SERVIR ARQUIVOS
-// =======================
-app.get("/:file", (req, res) => {
-  const filePath = path.join(__dirname, req.params.file);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({
-      success: false,
-      error: "file not found"
-    });
-  }
-
-  res.sendFile(filePath);
-});
-
-// =======================
-// START
-// =======================
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
-});
+      console.log("🎬 Gerando vídeo...");
+      execSync(`ffmpeg -y -framerate 1/4 -i img%d.jpg -i ${audioFile} -c:v libx264 -c:a aac -pix_fmt yuv420p -shortest ${videoName}`)
