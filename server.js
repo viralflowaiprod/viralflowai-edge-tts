@@ -8,33 +8,35 @@ app.use(express.json());
 
 const jobs = {};
 
-app.get("/", (req, res) => {
+app.get("/", function(req, res) {
   res.json({ success: true, service: "ViralFlowAI Edge TTS + Video Builder", status: "online" });
 });
 
-app.post("/tts", (req, res) => {
-  const { text } = req.body;
+app.post("/tts", function(req, res) {
+  var text = req.body.text;
   if (!text) return res.status(400).json({ success: false, error: "text required" });
-  const filename = "audio_" + Date.now() + ".mp3";
-  exec("edge-tts --voice pt-BR-AntonioNeural --text \"" + text + "\" --write-media " + filename, (error) => {
+  var filename = "audio_" + Date.now() + ".mp3";
+  exec("edge-tts --voice pt-BR-AntonioNeural --text \"" + text + "\" --write-media " + filename, function(error) {
     if (error) return res.status(500).json({ success: false, error: error.message });
     res.json({ success: true, audio_url: "https://" + req.get("host") + "/" + filename });
   });
 });
 
-app.post("/create-video", (req, res) => {
-  const { images, audioUrl } = req.body;
+app.post("/create-video", function(req, res) {
+  var images = req.body.images;
+  var audioUrl = req.body.audioUrl;
+
   if (!images || !audioUrl || images.length === 0) {
     return res.status(400).json({ success: false, error: "images and audioUrl required" });
   }
 
-  const jobId = "job_" + Date.now();
+  var jobId = "job_" + Date.now();
   jobs[jobId] = { status: "processing", video_url: null, error: null };
   res.json({ success: true, job_id: jobId, status: "processing" });
 
-  const videoName = "video_" + Date.now() + ".mp4";
-  const audioFile = "audio_dl_" + Date.now() + ".mp3";
-  const host = req.get("host");
+  var videoName = "video_" + Date.now() + ".mp4";
+  var audioFile = "audio_dl_" + Date.now() + ".mp3";
+  var host = req.get("host");
 
   setImmediate(function() {
     try {
@@ -60,7 +62,19 @@ app.post("/create-video", (req, res) => {
   });
 });
 
-app.get("/status/:jobId", (req, res) => {
+app.get("/status/:jobId", function(req, res) {
   var job = jobs[req.params.jobId];
   if (!job) return res.status(404).json({ success: false, error: "job not found" });
-  res.json({ su
+  res.json({ success: true, status: job.status, video_url: job.video_url, error: job.error });
+});
+
+app.get("/:file", function(req, res) {
+  var filePath = path.join(__dirname, req.params.file);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: "file not found" });
+  res.sendFile(filePath);
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log("Server running on " + PORT);
+});
