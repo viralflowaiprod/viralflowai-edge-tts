@@ -1,33 +1,69 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
-const { exec, execSync } = require("child_process");
+const https = require("https");
+const { execSync } = require("child_process");
+
 const app = express();
 app.use(express.json());
+
 const jobs = {};
 
+const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY || "";
+
 const voices = {
-  "pt": "pt-BR-AntonioNeural",
-  "en": "en-US-GuyNeural",
-  "es": "es-MX-JorgeNeural"
+  "pt": "pNInz6obpgDQGcFmaJgB",
+  "en": "ErXwobaYiN019PkySvjV",
+  "es": "VR6AewLTigWG4xSOukaG"
 };
 
 app.get("/", function(req, res) {
-  res.json({ success: true, service: "ViralFlowAI Edge TTS + Video Builder", status: "online" });
+  res.json({ success: true, service: "ViralFlowAI ElevenLabs + Video Builder", status: "online" });
 });
 
 app.post("/tts", function(req, res) {
   var text = req.body.text;
   var lang = req.body.lang || "pt";
   if (!text) return res.status(400).json({ success: false, error: "text required" });
-  var voice = voices[lang] || voices["pt"];
-  var ts = Date.now();
-  var wavFile = "audio_" + ts + ".wav";
-  var mp3File = "audio_" + ts + ".mp3";
-  exec("edge-tts --voice " + voice + " --text \"" + text + "\" --write-media " + wavFile + " && ffmpeg -y -i " + wavFile + " " + mp3File, function(error) {
-    if (error) return res.status(500).json({ success: false, error: error.message });
-    res.json({ success: true, audio_url: "https://" + req.get("host") + "/" + mp3File });
+
+  var voiceId = voices[lang] || voices["pt"];
+  var filename = "audio_" + Date.now() + ".mp3";
+
+  var postData = JSON.stringify({
+    text: text,
+    model_id: "eleven_multilingual_v2",
+    voice_settings: { stability: 0.5, similarity_boost: 0.75 }
   });
+
+  var options = {
+    hostname: "api.elevenlabs.io",
+    path: "/v1/text-to-speech/" + voiceId,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "xi-api-key": ELEVEN_API_KEY,
+      "Accept": "audio/mpeg"
+    }
+  };
+
+  var fileStream = fs.createWriteStream(filename);
+  var request = https.request(options, function(response) {
+    if (response.statusCode !== 200) {
+      return res.status(500).json({ success: false, error: "ElevenLabs error: " + response.statusCode });
+    }
+    response.pipe(fileStream);
+    fileStream.on("finish", function() {
+      fileStream.close();
+      res.json({ success: true, audio_url: "https://" + req.get("host") + "/" + filename });
+    });
+  });
+
+  request.on("error", function(err) {
+    res.status(500).json({ success: false, error: err.message });
+  });
+
+  request.write(postData);
+  request.end();
 });
 
 app.post("/create-video", function(req, res) {
@@ -40,15 +76,16 @@ app.post("/create-video", function(req, res) {
   jobs[jobId] = { status: "processing", video_url: null, error: null };
   res.json({ success: true, job_id: jobId, status: "processing" });
   var videoName = "video_" + Date.now() + ".mp4";
-  var rawAudio = "audio_raw_" + Date.now() + ".mp3";
-  var audioFile = "audio_conv_" + Date.now() + ".mp3";
+  var audioFile = "audio_dl_" + Date.now() + ".mp3";
   var host = req.get("host");
   setImmediate(function() {
     try {
       console.log("Baixando audio...");
-      execSync("curl -L \"" + audioUrl + "\" -o " + rawAudio);
-      console.log("Convertendo audio...");
-      execSync("ffmpeg -y -i " + rawAudio + " -acodec libmp3lame " + audioFile);
+      execSync("curl -L \"" + audioUrl + "\" -o " + audioFile);
+      var stats = fs.statSync(audioFile);
+      if (stats.size < 1000) {
+        throw new Error("Audio invalido - tamanho muito pequeno: " + stats.size + " bytes");
+      }
       console.log("Baixando imagens...");
       for (var i = 0; i < images.length; i++) {
         execSync("curl -L \"" + images[i] + "\" -o img" + i + ".jpg");
