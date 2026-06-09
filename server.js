@@ -40,12 +40,15 @@ app.post("/create-video", function(req, res) {
   jobs[jobId] = { status: "processing", video_url: null, error: null };
   res.json({ success: true, job_id: jobId, status: "processing" });
   var videoName = "video_" + Date.now() + ".mp4";
-  var audioFile = "audio_dl_" + Date.now() + ".mp3";
+  var rawAudio = "audio_raw_" + Date.now() + ".mp3";
+  var audioFile = "audio_conv_" + Date.now() + ".mp3";
   var host = req.get("host");
   setImmediate(function() {
     try {
       console.log("Baixando audio...");
-      execSync("curl -L \"" + audioUrl + "\" -o " + audioFile);
+      execSync("curl -L \"" + audioUrl + "\" -o " + rawAudio);
+      console.log("Convertendo audio...");
+      execSync("ffmpeg -y -i " + rawAudio + " -acodec libmp3lame " + audioFile);
       console.log("Baixando imagens...");
       for (var i = 0; i < images.length; i++) {
         execSync("curl -L \"" + images[i] + "\" -o img" + i + ".jpg");
