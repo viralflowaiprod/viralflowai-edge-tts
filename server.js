@@ -183,7 +183,7 @@ app.post("/create-video", function(req, res) {
 
     try {
       console.log("Baixando audio...");
-      execSync('curl -L --fail "' + audioUrl + '" -o "' + audioFile + '"');
+      execSync('curl -L --fail --max-time 60 "' + audioUrl + '" -o "' + audioFile + '"');
 
       if (!fs.existsSync(audioFile)) {
         throw new Error("Audio nao encontrado");
@@ -198,7 +198,7 @@ app.post("/create-video", function(req, res) {
 
       console.log("Baixando imagens...");
       for (var i = 0; i < images.length; i++) {
-        execSync('curl -L --fail "' + images[i] + '" -o "img' + i + '.jpg"');
+        execSync('curl -L --fail --max-time 30 "' + images[i] + '" -o "img' + i + '.jpg"');
         if (!fs.existsSync("img" + i + ".jpg")) {
           throw new Error("Falha imagem " + i);
         }
@@ -248,6 +248,7 @@ app.get("/status/:jobId", function(req, res) {
   });
 });
 
+// Rota de arquivos com stream para evitar timeout do Railway
 app.get("/:file", function(req, res) {
   var file = path.basename(req.params.file);
   var filePath = path.join(__dirname, file);
@@ -259,10 +260,16 @@ app.get("/:file", function(req, res) {
     });
   }
 
+  var stat = fs.statSync(filePath);
+
+  res.setHeader("Content-Length", stat.size);
+  res.setHeader("Content-Type", "audio/mpeg");
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-  res.sendFile(filePath);
+
+  var stream = fs.createReadStream(filePath);
+  stream.pipe(res);
 });
 
 function autoClean() {
