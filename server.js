@@ -66,8 +66,8 @@ app.get("/voices", function(req, res) {
 app.post("/tts", function(req, res) {
   var text = req.body.text;
   var lang = req.body.lang || "pt-f";
-  var rate = req.body.rate || "+0%";
-  var pitch = req.body.pitch || "+0Hz";
+  var rate = req.body.rate || "-10%";
+  var pitch = req.body.pitch || "-3Hz";
 
   if (!text || String(text).trim() === "") {
     return res.status(400).json({ success: false, error: "text required" });
@@ -140,7 +140,7 @@ app.post("/create-video", function(req, res) {
     var host = req.get("host");
 
     try {
-      // Tenta ler o arquivo do disco diretamente (evita loopback do Railway)
+      // Lê o áudio direto do disco (evita loopback do Railway)
       var audioFileName = audioUrl.split("/").pop();
       var audioFileDisk = path.join(__dirname, audioFileName);
 
@@ -148,7 +148,6 @@ app.post("/create-video", function(req, res) {
         console.log("Audio encontrado no disco:", audioFileName);
         fs.copyFileSync(audioFileDisk, audioFile);
       } else {
-        // Fallback: tenta via localhost
         console.log("Baixando audio via localhost...");
         var port = process.env.PORT || 3000;
         execSync('curl -L --fail --max-time 30 "http://localhost:' + port + '/' + audioFileName + '" -o "' + audioFile + '"');
@@ -158,12 +157,17 @@ app.post("/create-video", function(req, res) {
 
       var audioStats = fs.statSync(audioFile);
       if (audioStats.size < 5000) {
-        throw new Error("Audio invalido - tamanho muito pequeno: " + audioStats.size + " bytes");
+        throw new Error("Audio invalido: " + audioStats.size + " bytes");
       }
 
       console.log("Audio OK:", audioStats.size, "bytes");
-      console.log("Baixando imagens...");
 
+      // Calcula duração por imagem para atingir mínimo de 60 segundos
+      var totalImages = images.length;
+      var secPerImage = Math.max(12, Math.ceil(60 / totalImages));
+      console.log("Segundos por imagem:", secPerImage);
+
+      console.log("Baixando", totalImages, "imagens...");
       for (var i = 0; i < images.length; i++) {
         execSync('curl -L --fail --max-time 30 "' + images[i] + '" -o "img' + i + '.jpg"');
         if (!fs.existsSync("img" + i + ".jpg")) throw new Error("Falha imagem " + i);
@@ -171,17 +175,19 @@ app.post("/create-video", function(req, res) {
         if (imgStats.size < 10000) throw new Error("Imagem invalida " + i);
       }
 
-      console.log("Criando video...");
+      console.log("Criando video 1080x1920 alta qualidade...");
       execSync(
         'ffmpeg -y ' +
-        '-framerate 1/8 ' +
+        '-framerate 1/' + secPerImage + ' ' +
         '-i img%d.jpg ' +
         '-i "' + audioFile + '" ' +
-        '-c:v libx264 ' +
-        '-c:a aac ' +
-        '-pix_fmt yuv420p ' +
+        '-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p" ' +
+        '-c:v libx264 -preset slow -crf 18 ' +
+        '-c:a aac -b:a 192k ' +
         '-shortest "' + videoName + '"'
       );
+
+      if (!fs.existsSync(videoName)) throw new Error("Video nao criado");
 
       jobs[jobId].status = "done";
       jobs[jobId].video_url = "https://" + host + "/" + videoName;
