@@ -30,7 +30,7 @@ function cleanOldFiles() {
     const files = fs.readdirSync(__dirname);
     files.forEach(file => {
       if (file.startsWith("audio_") || file.startsWith("audio_dl_") ||
-          file.startsWith("video_") || file.startsWith("img") || file.startsWith("job_")) {
+          file.startsWith("video_") || file.startsWith("img")) {
         try { fs.unlinkSync(path.join(__dirname, file)); } catch (e) {}
       }
     });
@@ -94,7 +94,7 @@ app.post("/tts", function(req, res) {
 app.post("/create-video", function(req, res) {
   var images = req.body.images || [];
   var audioUrl = cleanUrl(req.body.audioUrl);
-  var captions = req.body.captions || []; // textos de cada cena para legenda
+  var captions = req.body.captions || [];
 
   images = images.map(function(img) { return cleanUrl(img); });
 
@@ -112,102 +112,93 @@ app.post("/create-video", function(req, res) {
     var host = req.get("host");
 
     try {
-      // Lê áudio do disco diretamente (evita loopback Railway)
-      var audioFileName = audioUrl.split("/").pop();
+      // Extrai nome do arquivo e lê DIRETO DO DISCO — sem curl, sem loopback
+      var audioFileName = audioUrl.split("/").pop().split("?")[0];
       var audioFileDisk = path.join(__dirname, audioFileName);
 
+      console.log("Procurando audio no disco:", audioFileDisk);
+
       if (fs.existsSync(audioFileDisk) && fs.statSync(audioFileDisk).size >= 5000) {
-        console.log("Audio do disco:", audioFileName);
+        console.log("Audio encontrado no disco! Copiando...");
         fs.copyFileSync(audioFileDisk, audioFile);
       } else {
-        var port = process.env.PORT || 3000;
-        execSync('curl -L --fail --max-time 30 "http://localhost:' + port + '/' + audioFileName + '" -o "' + audioFile + '"');
+        // Lista arquivos de audio disponiveis para debug
+        var availableAudios = fs.readdirSync(__dirname).filter(f => f.startsWith("audio_") && f.endsWith(".mp3"));
+        throw new Error("Audio nao encontrado no disco: " + audioFileName + ". Disponiveis: " + availableAudios.join(", "));
       }
 
-      if (!fs.existsSync(audioFile)) throw new Error("Audio nao encontrado");
       var audioStats = fs.statSync(audioFile);
       if (audioStats.size < 5000) throw new Error("Audio invalido: " + audioStats.size + " bytes");
-
       console.log("Audio OK:", audioStats.size, "bytes");
 
-      // Calcula duração por imagem — mínimo 60 segundos
+      // Calcula duracao por imagem — minimo 60 segundos
       var totalImages = images.length;
       var secPerImage = Math.max(12, Math.ceil(60 / totalImages));
-      console.log("Segundos por imagem:", secPerImage);
+      console.log("Segundos por imagem:", secPerImage, "| Total imagens:", totalImages);
 
       // Baixa imagens
-      console.log("Baixando", totalImages, "imagens...");
+      console.log("Baixando imagens...");
       for (var i = 0; i < images.length; i++) {
         execSync('curl -L --fail --max-time 30 "' + images[i] + '" -o "img' + i + '.jpg"');
         if (!fs.existsSync("img" + i + ".jpg")) throw new Error("Falha imagem " + i);
         if (fs.statSync("img" + i + ".jpg").size < 10000) throw new Error("Imagem invalida " + i);
       }
 
-      // Gera vídeo com Ken Burns + legenda por frase
       console.log("Criando video com Ken Burns + legendas...");
 
-      // Monta filtros para cada imagem
+      // Monta filtros para cada imagem com Ken Burns + legenda + fade
       var filterParts = [];
-      var overlayChain = "";
-
       for (var i = 0; i < totalImages; i++) {
-        var caption = captions[i] || "";
-
-        // Escapa aspas e caracteres especiais para ffmpeg
-        var safeCaption = caption
+        var caption = (captions[i] || "").toString()
           .replace(/'/g, "\u2019")
           .replace(/:/g, "\\:")
           .replace(/\[/g, "\\[")
-          .replace(/\]/g, "\\]");
+          .replace(/\]/g, "\\]")
+          .replace(/,/g, "\\,");
 
-        // Ken Burns: zoom de 1.0 para 1.1 durante a cena
-        var zoom = "zoompan=z='min(zoom+0.0008,1.1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=" + (secPerImage * 25) + ":s=1080x1920:fps=25";
+        var dur = secPerImage * 25; // frames (25fps)
+        var kenBurns = "zoompan=z='min(zoom+0.0008,1.1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=" + dur + ":s=1080x1920:fps=25";
+        var fadeIn = "fade=t=in:st=0:d=0.5";
+        var fadeOut = "fade=t=out:st=" + (secPerImage - 0.5) + ":d=0.5";
 
-        // Legenda centralizada estilo TikTok — frase por frase
         var drawtext = "";
-        if (safeCaption) {
+        if (caption) {
           drawtext = ",drawtext=" +
-            "fontsize=52:" +
+            "fontsize=50:" +
             "fontcolor=white:" +
             "bordercolor=black:" +
             "borderw=3:" +
             "x=(w-text_w)/2:" +
-            "y=(h*0.82):" +
-            "text='" + safeCaption + "':" +
-            "line_spacing=8:" +
+            "y=(h*0.80):" +
+            "text='" + caption + "':" +
             "expansion=none";
         }
 
-        filterParts.push("[" + i + ":v]" + zoom + drawtext + ",fade=t=in:st=0:d=0.5,fade=t=out:st=" + (secPerImage - 0.5) + ":d=0.5[v" + i + "]");
+        filterParts.push("[" + i + ":v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920," + kenBurns + drawtext + "," + fadeIn + "," + fadeOut + "[v" + i + "]");
       }
 
-      // Concatena todos os vídeos
+      // Concatena
       var concatInputs = "";
-      for (var i = 0; i < totalImages; i++) {
-        concatInputs += "[v" + i + "]";
-      }
-
+      for (var i = 0; i < totalImages; i++) concatInputs += "[v" + i + "]";
       var filterComplex = filterParts.join("; ") + "; " + concatInputs + "concat=n=" + totalImages + ":v=1:a=0[vout]";
 
-      // Monta inputs de imagem
+      // Monta inputs
       var imageInputs = "";
       for (var i = 0; i < totalImages; i++) {
-        imageInputs += '-loop 1 -t ' + secPerImage + ' -i img' + i + '.jpg ';
+        imageInputs += '-loop 1 -t ' + secPerImage + ' -i "img' + i + '.jpg" ';
       }
 
       var ffmpegCmd =
-        'ffmpeg -y ' +
-        imageInputs +
+        'ffmpeg -y ' + imageInputs +
         '-i "' + audioFile + '" ' +
         '-filter_complex "' + filterComplex + '" ' +
         '-map "[vout]" -map ' + totalImages + ':a ' +
         '-c:v libx264 -preset fast -crf 20 ' +
         '-c:a aac -b:a 192k ' +
-        '-pix_fmt yuv420p ' +
-        '-shortest ' +
+        '-pix_fmt yuv420p -shortest ' +
         '"' + videoName + '"';
 
-      execSync(ffmpegCmd, { maxBuffer: 1024 * 1024 * 50 });
+      execSync(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 });
 
       if (!fs.existsSync(videoName)) throw new Error("Video nao criado");
 
@@ -232,21 +223,14 @@ app.get("/status/:jobId", function(req, res) {
 app.get("/:file", function(req, res) {
   var file = path.basename(req.params.file);
   var filePath = path.join(__dirname, file);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ success: false, error: "file not found" });
-  }
-
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: "file not found" });
   var stat = fs.statSync(filePath);
   var ext = path.extname(file).toLowerCase();
-  var contentType = ext === ".mp4" ? "video/mp4" : "audio/mpeg";
-
   res.setHeader("Content-Length", stat.size);
-  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Type", ext === ".mp4" ? "video/mp4" : "audio/mpeg");
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-
   fs.createReadStream(filePath).pipe(res);
 });
 
@@ -273,6 +257,6 @@ setInterval(autoClean, 5 * 60 * 1000);
 
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
-  console.log("ViralFlowAI Edge TTS rodando na porta " + PORT);
+  console.log("ViralFlowAI rodando na porta " + PORT);
   autoClean();
 });
