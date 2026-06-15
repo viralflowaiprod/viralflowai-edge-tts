@@ -125,7 +125,6 @@ function generateSRT(script, duration) {
   });
   return srt;
 }
-
 app.post("/create-video", async (req, res) => {
   let audioUrl = req.body.audioUrl || "";
   const script = req.body.script || "";
@@ -218,4 +217,43 @@ app.post("/create-video", async (req, res) => {
 
       filterComplexParts.push(`[${currentOutput}]subtitles=${srtFile}:force_style='Alignment=2,FontSize=14,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=180'[vout]`);
       
-      execSync(`ffmpeg -loglevel error -y ${imageInputs}-i "${audioFile}" -filter_complex "${filterComplexParts.join("; ")}" -map "[vout]" -map ${images.
+      execSync(`ffmpeg -loglevel error -y ${imageInputs}-i "${audioFile}" -filter_complex "${filterComplexParts.join("; ")}" -map "[vout]" -map ${images.length}:a -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 96k -pix_fmt yuv420p -shortest "${videoName}"`, { maxBuffer: 1024 * 1024 * 30 });
+
+      jobs[jobId].status = "done";
+      jobs[jobId].video_url = "https://" + host + "/" + videoName;
+      jobs[jobId].srt_url = "https://" + host + "/" + srtFile;
+    } catch (err) {
+      jobs[jobId].status = "error";
+      jobs[jobId].error = err.message;
+    }
+  });
+});
+
+app.get("/status/:jobId", (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ success: false, error: "job not found" });
+  res.json({ success: true, status: job.status, video_url: job.video_url, srt_url: job.srt_url, error: job.error });
+});
+
+app.get("/:file", (req, res) => {
+  const file = path.basename(req.params.file);
+  const filePath = path.join(__dirname, file);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: "file not found" });
+  res.setHeader("Cache-Control", "no-store");
+  fs.createReadStream(filePath).pipe(res);
+});
+
+setInterval(() => {
+  try {
+    const files = fs.readdirSync(__dirname);
+    const now = Date.now();
+    files.forEach(file => {
+      if (file.startsWith("audio_") || file.startsWith("audio_dl_") || file.startsWith("video_") || file.startsWith("img") || file.endsWith(".srt")) {
+        if (now - fs.statSync(path.join(__dirname, file)).mtimeMs > 30 * 60 * 1000) fs.unlinkSync(path.join(__dirname, file));
+      }
+    });
+  } catch (e) {}
+}, 5 * 60 * 1000);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => { console.log("Servidor otimizado rodando."); });
