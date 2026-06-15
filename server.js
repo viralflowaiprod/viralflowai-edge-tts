@@ -128,8 +128,8 @@ app.post("/create-video", async (req, res) => {
   const topic = req.body.topic || "nature";
   const imageCount = Math.max(10, req.body.imageCount || 12);
 
-  // Remove aspas extras
-  audioUrl = String(audioUrl).replace(/^["']+|["']+$/g, '').trim();
+  // Remove caracteres especiais (=, aspas, espaços)
+  audioUrl = String(audioUrl).replace(/^[="\s]+|["'\s]+$/g, '').trim();
 
   if (!audioUrl) return res.status(400).json({ success: false, error: "audioUrl required" });
 
