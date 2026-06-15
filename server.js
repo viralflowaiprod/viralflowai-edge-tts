@@ -236,4 +236,96 @@ app.post("/create-video", async (req, res) => {
         imageInputs += `-loop 1 -r 25 -t ${timePerImage} -i "img${i}.jpg" `;
         
         filterComplexParts.push(
-          `[${i}:v]scale=1440:2560,zoompan=z='min(zoom+0
+          `[${i}:v]scale=1440:2560,zoompan=z='min(zoom+0.0010,1.15)':d=${Math.ceil(timePerImage * 25)}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920[v${i}]`
+        );
+      }
+
+      let currentOutput = "v0";
+      let offset = duration / images.length;
+
+      for (let i = 1; i < images.length; i++) {
+        const nextOutput = `faded${i}`;
+        filterComplexParts.push(
+          `[currentOutput][v${i}]xfade=transition=fade:duration=${transitionDuration}:offset=${offset.toFixed(2)}[${nextOutput}]`.replace("currentOutput", currentOutput)
+        );
+        currentOutput = nextOutput;
+        offset += (duration / images.length);
+      }
+
+      const subsStyle = "subtitles=" + srtFile + ":force_style='Alignment=2,FontSize=13,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=180'";
+      filterComplexParts.push(`[${currentOutput}]${subsStyle}[vout]`);
+
+      const filterComplex = filterComplexParts.join("; ");
+
+      const ffmpegCmd = 
+        `ffmpeg -y ${imageInputs}` +
+        `-i "${audioFile}" ` +
+        `-filter_complex "${filterComplex}" ` +
+        `-map "[vout]" -map ${images.length}:a ` +
+        `-c:v libx264 -preset ultrafast -crf 26 ` +
+        `-c:a aac -b:a 128k ` +
+        `-pix_fmt yuv420p -shortest ` +
+        `"${videoName}"`;
+
+      execSync(ffmpegCmd, { maxBuffer: 1024 * 1024 * 60 });
+
+      if (!fs.existsSync(videoName)) throw new Error("O arquivo final de vídeo não foi gerado.");
+
+      jobs[jobId].status = "done";
+      jobs[jobId].video_url = "https://" + host + "/" + videoName;
+      jobs[jobId].srt_url = "https://" + host + "/" + srtFile;
+      
+      console.log("Vídeo finalizado com Efeitos e Legendas integradas!");
+
+    } catch (err) {
+      jobs[jobId].status = "error";
+      jobs[jobId].error = err.message;
+      console.log("Erro interno no processo:", err.message);
+    }
+  });
+});
+
+app.get("/status/:jobId", (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ success: false, error: "job not found" });
+  res.json({ success: true, status: job.status, video_url: job.video_url, srt_url: job.srt_url, error: job.error });
+});
+
+app.get("/:file", (req, res) => {
+  const file = path.basename(req.params.file);
+  const filePath = path.join(__dirname, file);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: "file not found" });
+  const stat = fs.statSync(filePath);
+  const ext = path.extname(file).toLowerCase();
+  res.setHeader("Content-Length", stat.size);
+  res.setHeader("Content-Type", 
+    ext === ".mp4" ? "video/mp4" : 
+    ext === ".srt" ? "text/plain" : 
+    "audio/mpeg"
+  );
+  res.setHeader("Cache-Control", "no-store");
+  fs.createReadStream(filePath).pipe(res);
+});
+
+setInterval(() => {
+  try {
+    const files = fs.readdirSync(__dirname);
+    const now = Date.now();
+    files.forEach(file => {
+      if (file.startsWith("audio_") || file.startsWith("audio_dl_") || 
+          file.startsWith("video_") || file.startsWith("img") || file.endsWith(".srt")) {
+        try {
+          const full = path.join(__dirname, file);
+          if (now - fs.statSync(full).mtimeMs > 30 * 60 * 1000) {
+            fs.unlinkSync(full);
+          }
+        } catch (e) {}
+      }
+    });
+  } catch (e) {}
+}, 5 * 60 * 1000);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("ViralFlowAI atualizado e rodando na porta " + PORT);
+});
