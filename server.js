@@ -126,7 +126,7 @@ function generateSRT(script, duration) {
   return srt;
 }
 
-// ROTA QUE O LOVABLE CHAMARÁ
+// ROTA CHAMADA PELO LOVABLE
 app.post("/create-video", async (req, res) => {
   let audioUrl = req.body.audioUrl || "";
   const script = req.body.script || "";
@@ -136,13 +136,12 @@ app.post("/create-video", async (req, res) => {
   audioUrl = String(audioUrl).replace(/^[="\s]+|["'\s]+$/g, '').trim();
 
   const jobId = "job_" + Date.now();
-  // Deixamos como 'done' fake inicialmente para o Lovable não travar em loop se o n8n for gerenciar
   jobs[jobId] = { status: "processing", video_url: null, error: null };
 
-  // Resposta imediata para o Lovable salvar o Job ID
+  // Responde ao Lovable imediatamente para ele não travar
   res.json({ success: true, job_id: jobId, status: "processing" });
 
-  // 🚀 PONTE: Envia os dados imediatamente para o seu n8n em segundo plano
+  // 🚀 PONTE ATUALIZADA: Repassa os dados para a URL de testes do seu n8n real
   setImmediate(() => {
     const n8nPayload = JSON.stringify({
       job_id: jobId,
@@ -154,9 +153,9 @@ app.post("/create-video", async (req, res) => {
     });
 
     const n8nOptions = {
-      hostname: "163.176.60.170",
+      hostname: "163.176.60.170", // Seu IP público do n8n
       port: 5678,
-      path: "/webhook/viralflow",
+      path: "/webhook-test/viralflow", // Rota de TESTE ativa no seu painel
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -165,7 +164,7 @@ app.post("/create-video", async (req, res) => {
     };
 
     const reqN8n = http.request(n8nOptions, (resN8n) => {
-      console.log(`Dados retransmitidos para o n8n. Status: ${resN8n.statusCode}`);
+      console.log(`Encaminhado para o n8n teste. Status: ${resN8n.statusCode}`);
     });
 
     reqN8n.on("error", (e) => {
@@ -176,7 +175,7 @@ app.post("/create-video", async (req, res) => {
     reqN8n.end();
   });
 
-  // Executa também a renderização local caso o Lovable queira ler deste servidor
+  // Renderiza também o vídeo em background localmente
   setImmediate(async () => {
     try {
       const audioFile = "audio_dl_" + Date.now() + ".mp3";
@@ -216,7 +215,7 @@ app.post("/create-video", async (req, res) => {
       let offset = duration / images.length;
       for (let i = 1; i < images.length; i++) {
         const nextOutput = `faded${i}`;
-        filterComplexParts.push(`[${currentOutput}][v${i}]xfade=transition=fade:duration=1.0:offset=${offset.toFixed(2)}[${nextOutput}]`);
+        filterComplexParts.push(`[currentOutput][v${i}]xfade=transition=fade:duration=1.0:offset=${offset.toFixed(2)}[${nextOutput}]`.replace("currentOutput", currentOutput));
         currentOutput = nextOutput;
         offset += (duration / images.length);
       }
@@ -262,4 +261,4 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { console.log("Servidor rodando na porta " + PORT); });
+app.listen(PORT, () => { console.log("Servidor de pontes rodando na porta " + PORT); });
