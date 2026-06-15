@@ -140,3 +140,82 @@ app.post("/create-video", async (req, res) => {
   res.json({ success: true, job_id: jobId, status: "processing" });
 
   setImmediate(() => {
+    const n8nPayload = JSON.stringify({
+      job_id: jobId,
+      audioUrl: audioUrl,
+      script: script,
+      topic: topic,
+      imageCount: imageCount,
+      origin: "lovable_bridge"
+    });
+
+    const n8nOptions = {
+      hostname: "163.176.60.170", 
+      port: 5678,
+      path: "/webhook-test/viralflow", 
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(n8nPayload)
+      }
+    };
+
+    const reqN8n = http.request(n8nOptions, (resN8n) => {
+      console.log(`Ponte enviada para a Oracle Cloud. Status: ${resN8n.statusCode}`);
+    });
+
+    reqN8n.on("error", (e) => {
+      console.error(`Falha ao alcançar a Oracle: ${e.message}`);
+    });
+
+    reqN8n.write(n8nPayload);
+    reqN8n.end();
+  });
+
+  setImmediate(async () => {
+    try {
+      const audioFile = "audio_dl_" + Date.now() + ".mp3";
+      const videoName = "video_" + Date.now() + ".mp4";
+      const srtFile = "subs_" + Date.now() + ".srt";
+      const host = req.get("host");
+
+      if (audioUrl.includes(host)) {
+        const localPath = path.join(__dirname, audioUrl.split("/").pop());
+        if (fs.existsSync(localPath)) fs.copyFileSync(localPath, path.join(__dirname, audioFile));
+        else throw new Error("Áudio local não encontrado");
+      } else {
+        execSync(`curl -L --fail --max-time 30 "${audioUrl}" -o "${audioFile}"`);
+      }
+
+      const duration = getAudioDuration(audioFile);
+      let images = await fetchPexelsImages(topic, imageCount);
+      if (images.length === 0) images = await fetchPixabayImages(topic, imageCount);
+      if (images.length < 3) throw new Error("Imagens insuficientes");
+
+      for (let i = 0; i < images.length; i++) {
+        execSync(`curl -L --fail --max-time 30 "${images[i]}" -o "img${i}.jpg"`);
+      }
+
+      fs.writeFileSync(srtFile, generateSRT(script, duration));
+
+      const timePerImage = (duration / images.length) + 0.5;
+      let imageInputs = "";
+      let filterComplexParts = [];
+
+      for (let i = 0; i < images.length; i++) {
+        imageInputs += `-loop 1 -t ${timePerImage} -i "img${i}.jpg" `;
+        filterComplexParts.push(`[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v${i}]`);
+      }
+
+      let currentOutput = "v0";
+      let offset = duration / images.length;
+      for (let i = 1; i < images.length; i++) {
+        const nextOutput = `faded${i}`;
+        filterComplexParts.push(`[currentOutput][v${i}]xfade=transition=fade:duration=0.5:offset=${offset.toFixed(2)}[${nextOutput}]`.replace("currentOutput", currentOutput));
+        currentOutput = nextOutput;
+        offset += (duration / images.length);
+      }
+
+      filterComplexParts.push(`[${currentOutput}]subtitles=${srtFile}:force_style='Alignment=2,FontSize=14,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=180'[vout]`);
+      
+      execSync(`ffmpeg -loglevel error -y ${imageInputs}-i "${audioFile}" -filter_complex "${filterComplexParts.join("; ")}" -map "[vout]" -map ${images.
