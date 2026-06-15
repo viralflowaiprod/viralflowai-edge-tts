@@ -123,10 +123,13 @@ function generateSRT(script, duration) {
 }
 
 app.post("/create-video", async (req, res) => {
-  const audioUrl = req.body.audioUrl;
+  let audioUrl = req.body.audioUrl;
   const script = req.body.script || "";
   const topic = req.body.topic || "nature";
   const imageCount = Math.max(10, req.body.imageCount || 12);
+
+  // Remove aspas extras
+  audioUrl = String(audioUrl).replace(/^["']+|["']+$/g, '').trim();
 
   if (!audioUrl) return res.status(400).json({ success: false, error: "audioUrl required" });
 
@@ -142,23 +145,23 @@ app.post("/create-video", async (req, res) => {
       const srtFile = "subs_" + Date.now() + ".srt";
       const host = req.get("host");
 
-      console.log("Baixando áudio...");
-      execSync(`curl -L --fail --max-time 30 "${audioUrl}" -o "${audioFile}"`);
+      console.log("Baixando áudio de:", audioUrl);
+      execSync(`curl -L --fail --max-time 30 ${audioUrl} -o ${audioFile}`);
       
       const audioStats = fs.statSync(audioFile);
       if (audioStats.size < 5000) throw new Error("Áudio inválido");
       
       const duration = getAudioDuration(audioFile);
-      console.log("Duração do áudio:", duration.toFixed(2), "segundos");
+      console.log("Duração:", duration.toFixed(2), "segundos");
 
-      console.log("Buscando imagens no Pixabay...");
+      console.log("Buscando imagens...");
       const images = await fetchPixabayImages(topic, imageCount);
-      if (images.length < 3) throw new Error("Pixabay retornou poucas imagens");
+      if (images.length < 3) throw new Error("Poucas imagens retornadas");
       
       console.log("Baixando " + images.length + " imagens...");
       for (let i = 0; i < images.length; i++) {
-        execSync(`curl -L --fail --max-time 30 "${images[i]}" -o "img${i}.jpg"`);
-        if (!fs.existsSync(`img${i}.jpg`)) throw new Error("Falha na imagem " + i);
+        execSync(`curl -L --fail --max-time 30 ${images[i]} -o img${i}.jpg`);
+        if (!fs.existsSync(`img${i}.jpg`)) throw new Error("Falha imagem " + i);
       }
 
       console.log("Gerando legendas...");
@@ -170,10 +173,9 @@ app.post("/create-video", async (req, res) => {
       const timePerImage = duration / images.length;
       let imageInputs = "";
       for (let i = 0; i < images.length; i++) {
-        imageInputs += `-loop 1 -t ${timePerImage} -i "img${i}.jpg" `;
+        imageInputs += `-loop 1 -t ${timePerImage} -i img${i}.jpg `;
       }
 
-      // Monta filter_complex com fade entre imagens
       let filterParts = [];
       for (let i = 0; i < images.length; i++) {
         filterParts.push(`[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1920:1080[v${i}]`);
@@ -188,13 +190,13 @@ app.post("/create-video", async (req, res) => {
 
       const ffmpegCmd = 
         `ffmpeg -y ${imageInputs}` +
-        `-i "${audioFile}" ` +
+        `-i ${audioFile} ` +
         `-filter_complex "${filterComplex}" ` +
         `-map "[vout]" -map ${images.length}:a ` +
         `-c:v libx264 -preset ultrafast -crf 28 ` +
         `-c:a aac ` +
         `-pix_fmt yuv420p -shortest ` +
-        `"${videoName}"`;
+        `${videoName}`;
 
       execSync(ffmpegCmd, { maxBuffer: 1024 * 1024 * 50 });
 
