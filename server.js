@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { exec, execSync } = require("child_process");
 const https = require("https");
-const http = require("http"); // Adicionado para conversar com o n8n via HTTP
+const http = require("http");
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -119,14 +119,13 @@ function generateSRT(script, duration) {
     const end = (i + 1) * timePerChunk;
     const formatTime = (sec) => {
       const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60), ms = Math.floor((sec % 1) * 1000);
-      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0'),}${String(ms).padStart(3, '0')}`;
     };
     srt += `${i + 1}\n${formatTime(start)} --> ${formatTime(end)}\n${chunk.trim()}\n\n`;
   });
   return srt;
 }
 
-// ROTA CHAMADA PELO LOVABLE
 app.post("/create-video", async (req, res) => {
   let audioUrl = req.body.audioUrl || "";
   const script = req.body.script || "";
@@ -138,10 +137,9 @@ app.post("/create-video", async (req, res) => {
   const jobId = "job_" + Date.now();
   jobs[jobId] = { status: "processing", video_url: null, error: null };
 
-  // Responde ao Lovable imediatamente para ele não travar
   res.json({ success: true, job_id: jobId, status: "processing" });
 
-  // 🚀 PONTE ATUALIZADA: Repassa os dados para a URL de testes do seu n8n real
+  // 🚀 Envia os dados imediatamente para o seu n8n na Oracle ANTES de começar o vídeo pesado
   setImmediate(() => {
     const n8nPayload = JSON.stringify({
       job_id: jobId,
@@ -153,9 +151,9 @@ app.post("/create-video", async (req, res) => {
     });
 
     const n8nOptions = {
-      hostname: "163.176.60.170", // Seu IP público do n8n
+      hostname: "163.176.60.170", 
       port: 5678,
-      path: "/webhook-test/viralflow", // Rota de TESTE ativa no seu painel
+      path: "/webhook-test/viralflow", 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -164,18 +162,17 @@ app.post("/create-video", async (req, res) => {
     };
 
     const reqN8n = http.request(n8nOptions, (resN8n) => {
-      console.log(`Encaminhado para o n8n teste. Status: ${resN8n.statusCode}`);
+      console.log(`Ponte enviada para a Oracle Cloud. Status: ${resN8n.statusCode}`);
     });
 
     reqN8n.on("error", (e) => {
-      console.error(`Erro ao espelhar para o n8n: ${e.message}`);
+      console.error(`Falha ao alcançar a Oracle: ${e.message}`);
     });
 
     reqN8n.write(n8nPayload);
     reqN8n.end();
   });
 
-  // Renderiza também o vídeo em background localmente
   setImmediate(async () => {
     try {
       const audioFile = "audio_dl_" + Date.now() + ".mp3";
@@ -202,27 +199,29 @@ app.post("/create-video", async (req, res) => {
 
       fs.writeFileSync(srtFile, generateSRT(script, duration));
 
-      const timePerImage = (duration / images.length) + 1.0;
+      const timePerImage = (duration / images.length) + 0.5;
       let imageInputs = "";
       let filterComplexParts = [];
 
+      // 🛠️ OTIMIZAÇÃO DE MEMÓRIA: Reduzimos a escala interna e removemos o zoompan complexo que quebrava a Railway
       for (let i = 0; i < images.length; i++) {
-        imageInputs += `-loop 1 -r 25 -t ${timePerImage} -i "img${i}.jpg" `;
-        filterComplexParts.push(`[${i}:v]scale=1440:2560,zoompan=z='min(zoom+0.0010,1.15)':d=${Math.ceil(timePerImage * 25)}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920[v${i}]`);
+        imageInputs += `-loop 1 -t ${timePerImage} -i "img${i}.jpg" `;
+        filterComplexParts.push(`[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v${i}]`);
       }
 
       let currentOutput = "v0";
       let offset = duration / images.length;
       for (let i = 1; i < images.length; i++) {
         const nextOutput = `faded${i}`;
-        filterComplexParts.push(`[currentOutput][v${i}]xfade=transition=fade:duration=1.0:offset=${offset.toFixed(2)}[${nextOutput}]`.replace("currentOutput", currentOutput));
+        filterComplexParts.push(`[currentOutput][v${i}]xfade=transition=fade:duration=0.5:offset=${offset.toFixed(2)}[${nextOutput}]`.replace("currentOutput", currentOutput));
         currentOutput = nextOutput;
         offset += (duration / images.length);
       }
 
-      filterComplexParts.push(`[${currentOutput}]subtitles=${srtFile}:force_style='Alignment=2,FontSize=13,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=180'[vout]`);
+      filterComplexParts.push(`[${currentOutput}]subtitles=${srtFile}:force_style='Alignment=2,FontSize=14,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=180'[vout]`);
       
-      execSync(`ffmpeg -y ${imageInputs}-i "${audioFile}" -filter_complex "${filterComplexParts.join("; ")}" -map "[vout]" -map ${images.length}:a -c:v libx264 -preset ultrafast -crf 26 -c:a aac -b:a 128k -pix_fmt yuv420p -shortest "${videoName}"`, { maxBuffer: 1024 * 1024 * 60 });
+      // 🛠️ OTIMIZAÇÃO DE LOGS: Adicionado "-loglevel error" para parar de inundar a Railway com textos repetidos
+      execSync(`ffmpeg -loglevel error -y ${imageInputs}-i "${audioFile}" -filter_complex "${filterComplexParts.join("; ")}" -map "[vout]" -map ${images.length}:a -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 96k -pix_fmt yuv420p -shortest "${videoName}"`, { maxBuffer: 1024 * 1024 * 30 });
 
       jobs[jobId].status = "done";
       jobs[jobId].video_url = "https://" + host + "/" + videoName;
@@ -261,4 +260,4 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { console.log("Servidor de pontes rodando na porta " + PORT); });
+app.listen(PORT, () => { console.log("Servidor otimizado rodando."); });
