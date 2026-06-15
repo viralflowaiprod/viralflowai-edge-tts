@@ -9,8 +9,8 @@ app.use(express.json({ limit: "50mb" }));
 
 const jobs = {};
 const PIXABAY_KEY = "56312154-50a7e60c89bbca8e2ec16e16f";
-// COLOQUE SUA CHAVE DO PEXELS AQUI
-const PEXELS_KEY = process.env.PEXELS_KEY || "SUA_CHAVE_PEXELS_AQUI"; 
+// CHAVE DO PEXELS ADICIONADA DIRETAMENTE
+const PEXELS_KEY = process.env.PEXELS_KEY || "TNjDXfKpZuSI9ta1ZwRd9RShDPhVotrFbq96MdnMtqpeinPZRBaUXdVv"; 
 
 const voices = {
   "pt": "pt-BR-FranciscaNeural",
@@ -131,4 +131,4 @@ function getAudioDuration(filename) {
 }
 
 function generateSRT(script, duration) {
-  const chunks = script.split(/
+  const chunks =
