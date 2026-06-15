@@ -128,7 +128,6 @@ app.post("/create-video", async (req, res) => {
   const topic = req.body.topic || "nature";
   const imageCount = Math.max(10, req.body.imageCount || 12);
 
-  // Remove caracteres especiais (=, aspas, espaços)
   audioUrl = String(audioUrl).replace(/^[="\s]+|["'\s]+$/g, '').trim();
 
   if (!audioUrl) return res.status(400).json({ success: false, error: "audioUrl required" });
@@ -145,8 +144,28 @@ app.post("/create-video", async (req, res) => {
       const srtFile = "subs_" + Date.now() + ".srt";
       const host = req.get("host");
 
-      console.log("Baixando áudio de:", audioUrl);
-      execSync(`curl -L --fail --max-time 30 ${audioUrl} -o ${audioFile}`);
+      console.log("URL do áudio:", audioUrl);
+
+      // --- SOLUÇÃO DO TIMEOUT / EVITAR AUTO-REQUISIÇÃO ---
+      // Se a URL do áudio apontar para o próprio servidor, lê direto do disco local
+      if (audioUrl.includes(host) || audioUrl.includes("viralflowai-edge-tts")) {
+        console.log("Detectado áudio local. Copiando direto do disco...");
+        const originalFilename = audioUrl.split("/").pop(); // pega o 'audio_xxxxxx.mp3'
+        const localPath = path.join(__dirname, originalFilename);
+        
+        if (fs.existsSync(localPath)) {
+          fs.copyFileSync(localPath, path.join(__dirname, audioFile));
+          console.log("Cópia do áudio concluída localmente.");
+        } else {
+          throw new Error("Arquivo de áudio original não encontrado localmente: " + originalFilename);
+        }
+      } else {
+        // Se for um link realmente externo (ex: S3, Supabase), aí sim usa o curl
+        console.log("Baixando áudio externo via curl...");
+        execSync(`curl -L --fail --max-time 30 "${audioUrl}" -o "${audioFile}"`);
+        console.log("Download do áudio concluído.");
+      }
+      // --------------------------------------------------
       
       const audioStats = fs.statSync(audioFile);
       if (audioStats.size < 5000) throw new Error("Áudio inválido");
@@ -160,7 +179,7 @@ app.post("/create-video", async (req, res) => {
       
       console.log("Baixando " + images.length + " imagens...");
       for (let i = 0; i < images.length; i++) {
-        execSync(`curl -L --fail --max-time 30 ${images[i]} -o img${i}.jpg`);
+        execSync(`curl -L --fail --max-time 30 "${images[i]}" -o "img${i}.jpg"`);
         if (!fs.existsSync(`img${i}.jpg`)) throw new Error("Falha imagem " + i);
       }
 
@@ -178,7 +197,7 @@ app.post("/create-video", async (req, res) => {
 
       let filterParts = [];
       for (let i = 0; i < images.length; i++) {
-        filterParts.push(`[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1920:1080[v${i}]`);
+        filterParts.push(`[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v${i}]`);
       }
       
       let concat = "";
@@ -190,13 +209,13 @@ app.post("/create-video", async (req, res) => {
 
       const ffmpegCmd = 
         `ffmpeg -y ${imageInputs}` +
-        `-i ${audioFile} ` +
+        `-i "${audioFile}" ` +
         `-filter_complex "${filterComplex}" ` +
         `-map "[vout]" -map ${images.length}:a ` +
         `-c:v libx264 -preset ultrafast -crf 28 ` +
         `-c:a aac ` +
         `-pix_fmt yuv420p -shortest ` +
-        `${videoName}`;
+        `"${videoName}"`;
 
       execSync(ffmpegCmd, { maxBuffer: 1024 * 1024 * 50 });
 
