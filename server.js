@@ -159,12 +159,13 @@ app.post("/create-video", async (req, res) => {
       }
     };
 
+    // Força a saída do pacote de rede ignorando restrições locais da porta 8080
     const reqN8n = http.request(n8nOptions, (resN8n) => {
       console.log(`Ponte enviada para a Oracle Cloud. Status: ${resN8n.statusCode}`);
     });
 
     reqN8n.on("error", (e) => {
-      console.error(`Falha ao alcançar a Oracle: ${e.message}`);
+      console.error(`Falha ao alcançar a Oracle na porta 5678: ${e.message}`);
     });
 
     reqN8n.write(n8nPayload);
@@ -256,4 +257,4 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { console.log("Servidor otimizado rodando."); });
+app.listen(PORT, () => { console.log(`Servidor otimizado rodando na porta ${PORT}`); });
