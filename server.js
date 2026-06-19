@@ -7,23 +7,30 @@ const https = require("https");
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 
+// =====================
+// JOBS + FILA (ANTI-CRASH)
+// =====================
 const jobs = {};
+const queue = [];
+let isProcessing = false;
 
-// ========================
-// VOICES CORRIGIDO
-// ========================
+// =====================
+// CONFIG
+// =====================
+const PORT = process.env.PORT || 3000;
+
+const PIXABAY_KEY = "56312154-50a7e60c89bbca8e2ec16e16f";
+const PEXELS_KEY = process.env.PEXELS_KEY || "TNjDXfKpZuSI9ta1ZwRd9RShDPhVotrFbq96MdnMtqpeinPZRBaUXdVv";
+
 const voices = {
-  "pt-m": "pt-BR-AntonioNeural",
-  "pt-f": "pt-BR-FranciscaNeural",
-  "en-m": "en-US-GuyNeural",
-  "en-f": "en-US-JennyNeural",
-  "es-m": "es-ES-AlvaroNeural",
-  "es-f": "es-ES-ElviraNeural"
+  pt: "pt-BR-FranciscaNeural",
+  en: "en-US-JennyNeural",
+  es: "es-ES-ElviraNeural"
 };
 
-// ========================
-// CLEAN FILES
-// ========================
+// =====================
+// CLEAN CACHE
+// =====================
 function cleanOldFiles() {
   try {
     const files = fs.readdirSync(__dirname);
@@ -34,7 +41,9 @@ function cleanOldFiles() {
         file.startsWith("img") ||
         file.endsWith(".srt")
       ) {
-        try { fs.unlinkSync(path.join(__dirname, file)); } catch {}
+        try {
+          fs.unlinkSync(path.join(__dirname, file));
+        } catch {}
       }
     });
     console.log("Cache removido.");
@@ -43,103 +52,137 @@ function cleanOldFiles() {
 
 cleanOldFiles();
 
-// ========================
+// =====================
 // HEALTH CHECK
-// ========================
+// =====================
 app.get("/", (req, res) => {
-  res.json({ success: true, service: "ViralFlowAI", status: "online" });
+  res.json({
+    success: true,
+    service: "ViralFlowAI",
+    status: "online"
+  });
 });
 
-// ========================
-// TTS (FIXADO)
-// ========================
+// =====================
+// TTS (EDGE-TTS)
+// =====================
 app.post("/tts", (req, res) => {
   const text = req.body.text;
-  const lang = req.body.lang || "pt-f";
+  const lang = req.body.lang || "pt";
 
   if (!text || !text.trim()) {
     return res.status(400).json({ success: false, error: "text required" });
   }
 
-  const voice = voices[lang] || voices["pt-f"];
+  const voice = voices[lang] || voices.pt;
   const filename = "audio_" + Date.now() + ".mp3";
 
-  const safeText = String(text)
+  const safeText = text
     .replace(/"/g, '\\"')
     .replace(/\n/g, " ")
     .replace(/\r/g, " ");
 
-  if (!safeText || safeText.trim().length < 3) {
-    return res.status(400).json({ success: false, error: "text too short" });
-  }
-
   const cmd = `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${filename}"`;
 
-  exec(cmd, (err) => {
-    if (err) {
+  exec(cmd, (error) => {
+    if (error) {
       return res.status(500).json({ success: false, error: "TTS error" });
     }
 
-    const baseUrl = `http://${req.get("host")}`;
+    const baseUrl = `http://localhost:${PORT}`;
 
-    res.json({
+    return res.json({
       success: true,
       audio_url: `${baseUrl}/${filename}`
     });
   });
 });
 
-// ========================
-// CREATE VIDEO (mock estável por enquanto)
-// ========================
+// =====================
+// SERVIR ARQUIVOS
+// =====================
+app.use("/audio", express.static(__dirname));
+app.use("/video", express.static(__dirname));
+
+// =====================
+// FILA DE PROCESSAMENTO (ANTI-CRASH)
+// =====================
+async function processQueue() {
+  if (isProcessing) return;
+  if (queue.length === 0) return;
+
+  isProcessing = true;
+
+  const job = queue.shift();
+
+  try {
+    await job();
+  } catch (err) {
+    console.error("Job error:", err);
+  }
+
+  isProcessing = false;
+  processQueue();
+}
+
+// =====================
+// CREATE VIDEO (PROTEGIDO)
+// =====================
 app.post("/create-video", (req, res) => {
   const jobId = "job_" + Date.now();
 
   jobs[jobId] = {
-    status: "processing"
+    status: "queued"
   };
+
+  queue.push(async () => {
+    jobs[jobId].status = "processing";
+
+    const audioUrl = req.body.audioUrl;
+    const script = req.body.script || "video";
+    const topic = req.body.topic || "video";
+
+    const output = `video_${Date.now()}.mp4`;
+
+    try {
+      // 🔥 SIMULAÇÃO SEGURA (substituir por seu ffmpeg real depois)
+      const cmd = `ffmpeg -y -i "${audioUrl}" -t 10 "${output}"`;
+
+      execSync(cmd);
+
+      jobs[jobId].status = "done";
+      jobs[jobId].video = `http://localhost:${PORT}/${output}`;
+
+    } catch (e) {
+      jobs[jobId].status = "error";
+    }
+  });
+
+  processQueue();
 
   res.json({
     success: true,
     job_id: jobId,
-    status: "processing"
+    status: "queued"
   });
-
-  setTimeout(() => {
-    jobs[jobId].status = "done";
-    jobs[jobId].video_url = "processing.mp4";
-  }, 5000);
 });
 
-// ========================
-// STATUS
-// ========================
-app.get("/status/:id", (req, res) => {
+// =====================
+// STATUS JOB
+// =====================
+app.get("/job/:id", (req, res) => {
   const job = jobs[req.params.id];
-  if (!job) return res.status(404).json({ error: "not found" });
+
+  if (!job) {
+    return res.status(404).json({ error: "not found" });
+  }
 
   res.json(job);
 });
 
-// ========================
-// FILE SERVER
-// ========================
-app.get("/:file", (req, res) => {
-  const file = path.basename(req.params.file);
-  const filePath = path.join(__dirname, file);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "not found" });
-  }
-
-  fs.createReadStream(filePath).pipe(res);
-});
-
-// ========================
+// =====================
 // START SERVER
-// ========================
-const PORT = process.env.PORT || 3000;
-
+// =====================
 app.listen(PORT, () => {
-  console.log(`🔥 SERVER REAL RODANDO NA PORTA ${PORT}`);
+  console.log(`🔥 SERVER RODANDO NA PORTA ${PORT}`);
 });
