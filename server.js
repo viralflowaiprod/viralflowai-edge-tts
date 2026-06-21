@@ -116,5 +116,3 @@ app.listen(PORT, () => {
   console.log(`🔥 SERVER RODANDO NA PORTA ${PORT}`);
 });
 EOF
-
-pm2 restart server
