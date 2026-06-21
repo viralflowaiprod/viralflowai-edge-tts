@@ -114,4 +114,3 @@ app.get("/job/:id", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🔥 SERVER RODANDO NA PORTA ${PORT}`);
 });
-EOF
