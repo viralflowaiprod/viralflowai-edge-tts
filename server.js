@@ -55,7 +55,7 @@ app.post("/tts", (req, res) => {
     return res.status(400).json({ success: false, error: "text required" });
   }
 
-  const voice = voices[lang] || voices.pt;
+  const voice = voices[lang] || voices["pt-BR-f"];
   const filename = "audio_" + Date.now() + ".mp3";
   const safeText = text.replace(/"/g, '\\"').replace(/\n/g, " ");
   const cmd = `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${filename}"`;
