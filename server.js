@@ -13,9 +13,21 @@ let isProcessing = false;
 const PORT = process.env.PORT || 3000;
 
 const voices = {
-  pt: "pt-BR-FranciscaNeural",
-  en: "en-US-JennyNeural",
-  es: "es-ES-ElviraNeural"
+  // Português Brasil
+  "pt-BR-m": "pt-BR-AntonioNeural",
+  "pt-BR-f": "pt-BR-FranciscaNeural",
+
+  // Português Portugal
+  "pt-PT-m": "pt-PT-DuarteNeural",
+  "pt-PT-f": "pt-PT-RaquelNeural",
+
+  // Inglês
+  "en-m": "en-US-GuyNeural",
+  "en-f": "en-US-JennyNeural",
+
+  // Espanhol
+  "es-m": "es-ES-AlvaroNeural",
+  "es-f": "es-ES-ElviraNeural"
 };
 
 function cleanOldFiles() {
@@ -37,7 +49,7 @@ app.get("/", (req, res) => {
 
 app.post("/tts", (req, res) => {
   const text = req.body.text;
-  const lang = req.body.lang || "pt";
+  const lang = req.body.lang || "pt-BR-m";
 
   if (!text || !text.trim()) {
     return res.status(400).json({ success: false, error: "text required" });
